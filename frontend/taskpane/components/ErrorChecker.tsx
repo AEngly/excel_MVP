@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useState } from 'react';
 import axios from 'axios';
+import { API_BASE_URL } from '../config';
 
 interface ErrorItem {
   sheet: string;
@@ -25,7 +26,7 @@ export const ErrorChecker: React.FC = () => {
       const modelData = await extractModelData();
 
       // Send to backend for analysis
-      const response = await axios.post('http://localhost:3001/api/check-errors', {
+      const response = await axios.post(`${API_BASE_URL}/api/check-errors`, {
         modelData
       });
 

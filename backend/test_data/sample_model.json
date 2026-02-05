@@ -1,0 +1,78 @@
+{
+  "Assumptions": {
+    "data": [
+      [["Revenue Growth Rate (2024)", "20%"]],
+      [["Revenue Growth Rate (2025)", "20%"]],
+      [["Revenue Growth Rate (2026)", "15%"]],
+      [["EBITDA Margin", "30%"]],
+      [["Tax Rate", "25%"]],
+      [["CAPEX % of Revenue", "6.67%"]],
+      [["NWC % of Revenue", "3%"]],
+      [["Risk-Free Rate", "4%"]],
+      [["Market Risk Premium", "6%"]],
+      [["Beta", "1.2"]],
+      [["Cost of Debt", "5%"]],
+      [["Debt Weight", "30%"]],
+      [["Equity Weight", "70%"]],
+      [["WACC", "8.21%"]],
+      [["Terminal Growth Rate", "3%"]]
+    ],
+    "formulas": [
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, null],
+      [null, "=B8+(B9*B10)*B13+(B11*(1-B5))*B12"],
+      [null, null]
+    ]
+  },
+  "Financials": {
+    "data": [
+      [["", "2023", "2024", "2025", "2026"]],
+      [["Revenue", 150, "=B2*(1+Assumptions!B2)", "=C2*(1+Assumptions!B3)", "=D2*(1+Assumptions!B4)"]],
+      [["EBITDA", 45, "=B2*Assumptions!B5", "=C2*Assumptions!B5", "=D2*Assumptions!B5"]],
+      [["CAPEX", -10, "=-B2*Assumptions!B7", "=-C2*Assumptions!B7", "=-D2*Assumptions!B7"]],
+      [["NWC Change", -5, "=-B2*Assumptions!B8", "=-C2*Assumptions!B8", "=-D2*Assumptions!B8"]]
+    ],
+    "formulas": [
+      [null, null, null, null, null],
+      [null, null, "=B2*(1+Assumptions!B2)", "=C2*(1+Assumptions!B3)", "=D2*(1+Assumptions!B4)"],
+      [null, null, "=B2*Assumptions!B5", "=C2*Assumptions!B5", "=D2*Assumptions!B5"],
+      [null, null, "=-B2*Assumptions!B7", "=-C2*Assumptions!B7", "=-D2*Assumptions!B7"],
+      [null, null, "=-B2*Assumptions!B8", "=-C2*Assumptions!B8", "=-D2*Assumptions!B8"]
+    ]
+  },
+  "DCF Calculation": {
+    "data": [
+      [["Year", "2024", "2025", "2026"]],
+      [["Free Cash Flow", "=Financials!B3+Financials!B4+Financials!B5", "=Financials!C3+Financials!C4+Financials!C5", "=Financials!D3+Financials!D4+Financials!D5"]],
+      [["Discount Factor", "=1/(1+Assumptions!B14)^1", "=1/(1+Assumptions!B14)^2", "=1/(1+Assumptions!B14)^3"]],
+      [["PV of FCF", "=B2*B3", "=C2*C3", "=D2*D3"]],
+      [["", "", "", ""]],
+      [["Terminal Value", "", "", "=D2*(1+Assumptions!B15)/(Assumptions!B14-Assumptions!B15)"]],
+      [["PV of Terminal Value", "", "", "=D6*D3"]],
+      [["Enterprise Value", "=SUM(B4:D4)+D7", "", ""]],
+      [["Equity Value", "=B8", "", ""]]
+    ],
+    "formulas": [
+      [null, null, null, null],
+      [null, "=Financials!B3+Financials!B4+Financials!B5", "=Financials!C3+Financials!C4+Financials!C5", "=Financials!D3+Financials!D4+Financials!D5"],
+      [null, "=1/(1+Assumptions!B14)^1", "=1/(1+Assumptions!B14)^2", "=1/(1+Assumptions!B14)^3"],
+      [null, "=B2*B3", "=C2*C3", "=D2*D3"],
+      [null, null, null, null],
+      [null, null, null, "=D2*(1+Assumptions!B15)/(Assumptions!B14-Assumptions!B15)"],
+      [null, null, null, "=D6*D3"],
+      [null, "=SUM(B4:D4)+D7", null, null],
+      [null, "=B8", null, null]
+    ]
+  }
+}

@@ -3,25 +3,30 @@ Chat Service - Conversational AI for DCF model analysis
 """
 import os
 import json
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from langchain_openai import ChatOpenAI
+from services.embedding_service import search_chunks
 
 
 async def chat_with_model(
     message: str,
     model_data: Dict[str, Any],
-    history: List[Dict[str, str]] = None
+    history: List[Dict[str, str]] = None,
+    pdf_context: Optional[Dict[str, Any]] = None,
+    agent_mode: bool = False
 ) -> str:
     """
     Chat with the DCF model using conversational AI
 
     Args:
         message: User's question
-        model_data: Current DCF model data
+        model_data: Current DCF model data (optional - empty dict if not provided)
         history: Conversation history
+        pdf_context: Optional dict with PDF chunks and embeddings for semantic search
+        agent_mode: True = can read and write Excel, False = read-only
 
     Returns:
-        AI response as string
+        AI response as JSON string with structure: {"response": "...", "actions": [...]}
     """
     if history is None:
         history = []
@@ -32,56 +37,316 @@ async def chat_with_model(
         openai_api_key=os.getenv("OPENAI_API_KEY")
     )
 
-    # Build context from model data
-    model_context = build_model_context(model_data)
-
     # Build conversation history
     conversation_history = "\n".join([
         f"{'User' if h.get('role') == 'user' else 'Assistant'}: {h.get('content')}"
         for h in history
     ])
 
-    prompt = f"""You are a financial analysis assistant helping analyze a DCF model.
+    # Search PDF for relevant context if available
+    pdf_context_text = ""
+    if pdf_context and pdf_context.get("chunks") and pdf_context.get("embeddings"):
+        try:
+            print(f"🔍 Searching PDF for: {message[:50]}...")
+            print(f"📚 Available chunks: {len(pdf_context['chunks'])}")
+            print(f"📊 Available embeddings: {len(pdf_context['embeddings'])}")
 
-Current DCF Model Summary:
+            relevant_chunks = search_chunks(
+                query=message,
+                chunks=pdf_context["chunks"],
+                embeddings=pdf_context["embeddings"],
+                top_k=5  # Increased from 3 to 5 for better coverage
+            )
+
+            if relevant_chunks:
+                pdf_context_text = "\n\nRelevant PDF Context (use this to answer the question):\n"
+                for i, (chunk, score) in enumerate(relevant_chunks, 1):
+                    pdf_context_text += f"\n[Excerpt {i}, relevance score: {score:.2f}]\n{chunk}\n"
+                    print(f"  📄 Chunk {i}: relevance {score:.3f}, length {len(chunk)} chars")
+            else:
+                print("⚠️  No relevant chunks found!")
+        except Exception as e:
+            print(f"⚠️  PDF search error: {e}")
+            import traceback
+            traceback.print_exc()
+            # Continue without PDF context if search fails
+    else:
+        print("ℹ️  No PDF context available for this query")
+
+    # Build model context if available
+    model_context = ""
+    if model_data and len(model_data) > 0:
+        print(f"📋 Model data keys: {list(model_data.keys())}")
+        for sheet_name, sheet_data in model_data.items():
+            print(f"  Sheet '{sheet_name}': {list(sheet_data.keys())}")
+            if "cells" in sheet_data:
+                print(f"    Sparse format: {len(sheet_data['cells'])} cells")
+                # Show first few cells for debugging
+                for i, cell in enumerate(sheet_data['cells'][:5]):
+                    print(f"      Cell {i+1}: row={cell.get('row')}, col={cell.get('col')}, value={cell.get('value')}")
+
+        model_context = "\n\nCurrent Excel Model:\n" + build_model_context(model_data)
+        print(f"📊 Excel model context built: {len(model_context)} chars from {len(model_data)} sheets")
+        print(f"📝 First 500 chars of context:\n{model_context[:500]}")
+    else:
+        print("ℹ️  No Excel model data available")
+
+    # If no model_data, just do standard chat (read-only)
+    if not model_data or len(model_data) == 0:
+        prompt = f"""You are a helpful AI assistant for financial analysis and DCF modeling.
+
+IMPORTANT: Always respond in the SAME LANGUAGE as the user's message. If the user writes in Danish, respond in Danish. If in English, respond in English.
+{pdf_context_text}
+
+Previous Conversation:
+{conversation_history}
+
+User: {message}
+
+If PDF context is provided above, use it to give specific answers with numbers and citations. If no PDF context is available, provide general helpful guidance on the topic.
+
+Return ONLY a JSON object with this format:
+{{
+  "response": "Your helpful response in the SAME LANGUAGE as the user",
+  "actions": []
+}}
+
+Be helpful and informative regardless of whether PDF context is available."""
+    else:
+        # Model data available - user can read Excel sheet and ask questions
+        prompt = f"""You are an Excel AI assistant that can read and analyze Excel sheets.
+
+CRITICAL: You have FULL ACCESS to the Excel model shown below. Use it to answer questions PRECISELY.
+
+IMPORTANT: Always respond in the SAME LANGUAGE as the user's message. If the user writes in Danish, respond in Danish.
+{pdf_context_text}
 {model_context}
 
 Previous Conversation:
 {conversation_history}
 
-User Question: {message}
+User: {message}
 
-Provide a clear, insightful answer. If the question involves "what if" scenarios or sensitivity analysis,
-explain how changes would flow through the model. Be specific and reference actual values from the model when relevant."""
+INSTRUCTIONS:
+- When asked about specific cells (e.g., "What is in cell L4?"), look at the Excel Model context above and find that exact cell
+- The Excel Model section shows EVERY non-empty cell with its reference (e.g., "L4: 313.281566")
+- If a cell is listed in the Excel Model, it HAS content - answer based on what you see
+- If a cell is NOT listed, it is empty
+- For questions about formulas, values, or formatting, refer DIRECTLY to the Excel Model context above
+
+Return ONLY a JSON object with this format:
+{{
+  "response": "Your answer based on the Excel Model shown above (in same language as user)",
+  "actions": []
+}}
+
+IMPORTANT: Always respond in the SAME LANGUAGE as the user's message. If the user writes in Danish, respond in Danish.
+{pdf_context_text}
+{model_context}
+
+Previous Conversation:
+{conversation_history}
+
+User: {message}
+
+You can perform actions in Excel. Return ONLY valid JSON with this structure:
+{{
+  "response": "Your explanation to the user",
+  "actions": [
+    {{"type": "setCellValue", "sheet": "SheetName", "cell": "A1", "value": 123}},
+    {{"type": "setFormula", "sheet": "SheetName", "cell": "B2", "formula": "=A1*2"}},
+    {{"type": "setRangeValues", "sheet": "SheetName", "range": "A1:C3", "values": [[1, 2, 3], [4, 5, 6], [7, 8, 9]]}},
+    {{"type": "setRangeFormulas", "sheet": "SheetName", "range": "D1:D3", "formulas": [["=A1+B1"], ["=A2+B2"], ["=A3+B3"]]}},
+    {{"type": "formatCell", "sheet": "SheetName", "cell": "A1", "format": {{"bold": true, "numberFormat": "0.0%"}}}}
+  ]
+}}
+
+Action types:
+- setCellValue: Set a single cell to a number, string, or boolean
+- setFormula: Set a single cell formula (must start with =)
+- setRangeValues: Set multiple cells at once with 2D array
+- setRangeFormulas: Set formulas for multiple cells (use for connected models)
+- formatCell: Format a cell (bold, numberFormat, bgColor, fontColor)
+
+CRITICAL: For setRangeValues and setRangeFormulas, the array dimensions MUST match the range exactly!
+
+⚠️ BEFORE CREATING ANY ACTION WITH YEARS:
+1. COUNT THE YEARS: End_Year - Start_Year + 1
+   - Example: 2026 to 2040 → 2040 - 2026 + 1 = 15 years
+   - Example: 2026 to 2037 → 2037 - 2026 + 1 = 12 years
+   - Example: 2025 to 2034 → 2034 - 2025 + 1 = 10 years
+
+2. COUNT YOUR ARRAY: len(values[0]) must equal number of years
+   - 15 years = 15 values in array
+   - 12 years = 12 values in array
+
+3. CALCULATE END COLUMN:
+   - Formula: start_column_number + number_of_years - 1
+   - A (col 1) with 15 years: 1 + 15 - 1 = 15 = O
+   - D (col 4) with 12 years: 4 + 12 - 1 = 15 = O
+   - A (col 1) with 10 years: 1 + 10 - 1 = 10 = J
+
+Column letter to number mapping:
+A=1, B=2, C=3, D=4, E=5, F=6, G=7, H=8, I=9, J=10, K=11, L=12, M=13, N=14, O=15, P=16, Q=17, R=18, S=19, T=20
+
+CONCRETE EXAMPLES:
+❌ WRONG: Years 2026-2040 = 15 years, range A1:N1 = 14 columns → DIMENSION MISMATCH!
+✅ RIGHT: Years 2026-2040 = 15 years, range A1:O1 = 15 columns → CORRECT!
+
+❌ WRONG: Years 2026-2037 = 12 years, range D4:P4 = 13 columns → DIMENSION MISMATCH!
+✅ RIGHT: Years 2026-2037 = 12 years, range D4:O4 = 12 columns → CORRECT!
+
+❌ WRONG: Years 2025-2034 = 10 years, range D4:N4 = 11 columns → DIMENSION MISMATCH!
+✅ RIGHT: Years 2025-2034 = 10 years, range D4:M4 = 10 columns → CORRECT!
+
+Complex model example - "Create cash flow model with NPV and IRR":
+{{
+  "response": "I've created a cash flow model with NPV and IRR calculations",
+  "actions": [
+    {{"type": "setRangeValues", "sheet": "Cash Flow", "range": "A1:F1", "values": [["Year", "2024", "2025", "2026", "2027", "2028"]]}},
+    {{"type": "setRangeValues", "sheet": "Cash Flow", "range": "A2:A5", "values": [["Cash Flow"], ["Discount Rate"], ["NPV"], ["IRR"]]}},
+    {{"type": "setRangeValues", "sheet": "Cash Flow", "range": "B2:F2", "values": [[-1000, 300, 400, 500, 600]]}},
+    {{"type": "setCellValue", "sheet": "Cash Flow", "cell": "B3", "value": 0.1}},
+    {{"type": "setFormula", "sheet": "Cash Flow", "cell": "B4", "formula": "=NPV(B3, C2:F2) + B2"}},
+    {{"type": "setFormula", "sheet": "Cash Flow", "cell": "B5", "formula": "=IRR(B2:F2)"}},
+    {{"type": "formatCell", "sheet": "Cash Flow", "cell": "B3", "format": {{"numberFormat": "0.0%"}}}},
+    {{"type": "formatCell", "sheet": "Cash Flow", "cell": "B5", "format": {{"numberFormat": "0.00%"}}}}
+  ]
+}}
+
+Build interconnected models where formulas reference other cells. Use Excel functions: SUM, NPV, IRR, XNPV, PMT, etc.
+
+Only include actions if the user explicitly requests changes. For questions, return empty actions array."""
 
     try:
         response = await model.ainvoke([{"role": "user", "content": prompt}])
+        # Return the raw JSON string - frontend will parse it
         return response.content
     except Exception as e:
         print(f"Chat error: {e}")
-        raise Exception("Failed to generate chat response")
+        # Return error as valid JSON
+        return json.dumps({
+            "response": f"Error: {str(e)}",
+            "actions": []
+        })
 
 
 def build_model_context(model_data: Dict[str, Any]) -> str:
     """
-    Build a textual summary of the model for context
+    Build a textual summary of the model for context with cell references
+    Supports both old format (values/formulas arrays) and new sparse format (cells array)
     """
+    def col_letter(col_num):
+        """Convert column number to letter (1=A, 2=B, etc.)"""
+        letters = ""
+        while col_num > 0:
+            col_num, remainder = divmod(col_num - 1, 26)
+            letters = chr(65 + remainder) + letters
+        return letters
+
     context = ""
 
     # Extract key metrics from each sheet
     for sheet_name, sheet in model_data.items():
-        values = sheet.get("values", [])
+        context += f"\n=== Sheet: {sheet_name} ===\n"
 
-        if values:
-            context += f"\n{sheet_name}:\n"
+        # Check if using new sparse format
+        if "cells" in sheet:
+            # New format - array of non-empty cells
+            cells = sheet["cells"]
+            print(f"  📊 Sparse format: {len(cells)} non-empty cells")
 
-            # Include first few rows for context
-            preview_rows = values[:10]
-            preview = "\n".join([" | ".join(map(str, row)) for row in preview_rows])
-            context += preview + "\n"
+            for cell in cells[:100]:  # Limit to first 100 cells
+                col_letter_str = col_letter(cell["col"] + 1)
+                row_num = cell["row"] + 1
+                cell_ref = f"{col_letter_str}{row_num}"
+
+                # Build cell description - OPTIMIZED for token efficiency
+                cell_desc = f"{cell_ref}: "
+
+                # Show formula OR value (not both to save tokens)
+                if cell.get("formula"):
+                    # If formula exists, only show formula and final value if different
+                    formula_str = cell['formula']
+                    if str(cell['value']) != formula_str:  # Only show value if different from formula
+                        cell_desc += f"{formula_str} = {cell['value']}"
+                    else:
+                        cell_desc += formula_str
+                else:
+                    # No formula, just value
+                    cell_desc += str(cell['value'])
+
+                # Add number format ONLY if not General (save tokens)
+                if cell.get("numberFormat") and cell["numberFormat"] != "General":
+                    cell_desc += f" [{cell['numberFormat']}]"
+
+                # Add formatting ONLY if present (skip defaults)
+                if cell.get("bold"):
+                    cell_desc += " [bold]"
+
+                context += cell_desc + "\n"
+
+        else:
+            # Old format - full arrays (for backward compatibility)
+            values = sheet.get("values", [])
+            formulas = sheet.get("formulas", [])
+            number_format = sheet.get("numberFormat", [])
+            formatting = sheet.get("formatting", [])
+
+            if values:
+                # Show data with cell references
+                max_rows = min(20, len(values))
+                max_cols = min(20, len(values[0]) if values else 0)
+
+                for row_idx in range(max_rows):
+                    row_num = row_idx + 1
+                    row_data = values[row_idx]
+
+                    for col_idx in range(min(max_cols, len(row_data))):
+                        col_letter_str = col_letter(col_idx + 1)
+                        cell_ref = f"{col_letter_str}{row_num}"
+                        value = row_data[col_idx]
+
+                        # Skip empty cells
+                        if value == "" or value is None:
+                            continue
+
+                        # Build cell description
+                        cell_desc = f"{cell_ref}: "
+
+                        # Show formula if available
+                        if formulas and row_idx < len(formulas) and col_idx < len(formulas[row_idx]):
+                            formula = formulas[row_idx][col_idx]
+                            if formula and formula != "":
+                                cell_desc += f"{formula} (displays as: {value})"
+                            else:
+                                cell_desc += f"{value}"
+                        else:
+                            cell_desc += f"{value}"
+
+                        # Add number format if not General
+                        if number_format and row_idx < len(number_format) and col_idx < len(number_format[row_idx]):
+                            num_fmt = number_format[row_idx][col_idx]
+                            if num_fmt and num_fmt != "General":
+                                cell_desc += f" [format: {num_fmt}]"
+
+                        # Add formatting if present
+                        if formatting and row_idx < len(formatting) and col_idx < len(formatting[row_idx]):
+                            fmt = formatting[row_idx][col_idx]
+                            fmt_details = []
+                            if fmt.get("bold"):
+                                fmt_details.append("bold")
+                            if fmt.get("fontColor") and fmt["fontColor"] != "#000000":
+                                fmt_details.append(f"color:{fmt['fontColor']}")
+                            if fmt.get("fillColor") and fmt["fillColor"] != "#FFFFFF":
+                                fmt_details.append(f"bg:{fmt['fillColor']}")
+                            if fmt_details:
+                                cell_desc += f" [{', '.join(fmt_details)}]"
+
+                        context += cell_desc + "\n"
 
     # Limit context size
-    return context[:3000]
+    return context[:8000]
 
 
 async def run_sensitivity_analysis(

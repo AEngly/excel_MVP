@@ -3,19 +3,74 @@ import { useState } from 'react';
 import { PdfUpload } from './PdfUpload';
 import { ErrorChecker } from './ErrorChecker';
 import { ModelChat } from './ModelChat';
+import { API_BASE_URL } from '../config';
 import './App.css';
 
 type Tab = 'upload' | 'errors' | 'chat';
 
+interface PdfSession {
+  sessionId: string;
+  filename: string;
+  chunks: number;
+  uploadedAt: string;
+  summary: string;
+}
+
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('upload');
   const [modelExists, setModelExists] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [sessions, setSessions] = useState<PdfSession[]>([]);
+
+  React.useEffect(() => {
+    const checkBackend = async () => {
+      try {
+        console.log('Checking backend at:', `${API_BASE_URL}/health`);
+        const response = await fetch(`${API_BASE_URL}/health`, {
+          mode: 'cors',
+          credentials: 'omit'
+        });
+        console.log('Backend response:', response.status);
+        if (response.ok) {
+          setBackendStatus('online');
+        } else {
+          setBackendStatus('offline');
+        }
+      } catch (err: any) {
+        console.error('Backend error:', err.message);
+        setBackendStatus('offline');
+      }
+    };
+    checkBackend();
+  }, []);
+
+  const addSession = (sessionId: string, filename: string, chunks: number, summary: string) => {
+    const newSession: PdfSession = {
+      sessionId,
+      filename,
+      chunks,
+      uploadedAt: new Date().toLocaleString(),
+      summary
+    };
+    setSessions(prev => [...prev, newSession]);
+    console.log('📚 Added session:', filename);
+  };
+
+  const removeSession = (sessionId: string) => {
+    setSessions(prev => prev.filter(s => s.sessionId !== sessionId));
+    console.log('🗑️ Removed session:', sessionId.substring(0, 8));
+  };
 
   return (
     <div className="app-container">
       <header className="app-header">
         <h1>DCF Assistant</h1>
         <p className="subtitle">AI-Powered Financial Modeling</p>
+        <div style={{ fontSize: '12px', marginTop: '5px' }}>
+          Backend: <span style={{ color: backendStatus === 'online' ? '#28a745' : backendStatus === 'offline' ? '#dc3545' : '#ffc107' }}>
+            {backendStatus === 'online' ? '🟢 Online' : backendStatus === 'offline' ? '🔴 Offline' : '🟡 Checking...'}
+          </span>
+        </div>
       </header>
 
       <nav className="tab-nav">
@@ -28,23 +83,28 @@ export const App: React.FC = () => {
         <button
           className={`tab-button ${activeTab === 'errors' ? 'active' : ''}`}
           onClick={() => setActiveTab('errors')}
-          disabled={!modelExists}
         >
           ✓ Check Errors
         </button>
         <button
           className={`tab-button ${activeTab === 'chat' ? 'active' : ''}`}
           onClick={() => setActiveTab('chat')}
-          disabled={!modelExists}
         >
           💬 Chat
         </button>
       </nav>
 
       <main className="app-content">
-        {activeTab === 'upload' && <PdfUpload onModelCreated={() => setModelExists(true)} />}
+        {activeTab === 'upload' && (
+          <PdfUpload
+            onModelCreated={() => setModelExists(true)}
+            sessions={sessions}
+            onSessionCreated={addSession}
+            onSessionRemoved={removeSession}
+          />
+        )}
         {activeTab === 'errors' && <ErrorChecker />}
-        {activeTab === 'chat' && <ModelChat />}
+        {activeTab === 'chat' && <ModelChat sessions={sessions} />}
       </main>
 
       <footer className="app-footer">

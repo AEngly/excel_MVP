@@ -3,10 +3,48 @@ Model Service - Generate DCF models using LangChain and OpenAI
 """
 import os
 import json
+import re
 from typing import Dict, Any
 from langchain_openai import ChatOpenAI
-from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain
+from langchain_core.prompts import PromptTemplate
+
+
+def extract_json_from_text(text: str) -> Dict[str, Any]:
+    """
+    Extract JSON from text that might contain markdown or explanatory text
+
+    Args:
+        text: Raw text that contains JSON
+
+    Returns:
+        Parsed JSON dictionary
+    """
+    # Try direct parsing first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Try to extract from markdown code blocks
+    json_pattern = r'```(?:json)?\s*(\{.*?\})\s*```'
+    match = re.search(json_pattern, text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    # Try to find JSON object in text
+    brace_pattern = r'\{.*\}'
+    match = re.search(brace_pattern, text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError(f"Could not extract valid JSON from response: {text[:200]}...")
+
 
 
 async def generate_dcf_model(pdf_text: str) -> Dict[str, Any]:
@@ -26,38 +64,43 @@ async def generate_dcf_model(pdf_text: str) -> Dict[str, Any]:
     )
 
     prompt = PromptTemplate.from_template("""
-You are a financial modeling expert. Given the following company information extracted from a PDF,
-create a complete DCF (Discounted Cash Flow) model structure.
+You are a financial modeling expert. Create a DCF model structure from this company data.
 
-Extract or reasonably estimate:
-1. Historical financials (revenue, EBITDA, CAPEX, working capital changes)
-2. Growth assumptions (revenue growth rates, margin assumptions)
-3. WACC components (cost of equity, cost of debt, capital structure)
-4. Terminal value assumptions
+Return ONLY valid JSON with this EXACT structure (no extra text):
 
-If specific data is missing, make reasonable assumptions based on:
-- Industry standards for similar companies
-- Context clues from the document
-- Conservative financial modeling practices
-
-Return the data as JSON with three sections:
-- assumptions: 2D array for Assumptions sheet (labels in col A, values in col B)
-- financials: 2D array for Financials sheet (headers in row 1, data below)
-- dcfCalculations: 2D array for DCF Calculation sheet (with Excel formulas using = prefix)
+{{
+  "assumptions": [
+    ["Assumption", "Value"],
+    ["Revenue Growth Rate", "15%"],
+    ["WACC", "10%"],
+    ["Terminal Growth Rate", "3%"]
+  ],
+  "financials": [
+    ["Item", "Year 0", "Year 1", "Year 2"],
+    ["Revenue", 1000, 1150, 1322],
+    ["EBITDA", 220, 253, 291]
+  ],
+  "dcfCalculations": [
+    ["DCF Calculation", "Year 1", "Year 2"],
+    ["Free Cash Flow", 100, 115],
+    ["Discount Factor", 1.0, 0.91],
+    ["PV of FCF", 100, 105]
+  ]
+}}
 
 Company Information:
 {pdf_text}
 
-Return ONLY valid JSON, no additional text.
+Return ONLY the JSON object with keys: assumptions, financials, dcfCalculations (all lowercase).
 """)
 
-    chain = LLMChain(llm=model, prompt=prompt)
-
     try:
-        result = await chain.ainvoke({"pdf_text": pdf_text[:8000]})
+        # Use invoke instead of LLMChain
+        formatted_prompt = prompt.format(pdf_text=pdf_text[:8000])
+        result = await model.ainvoke(formatted_prompt)
 
-        # Parse the response
-        model_data = json.loads(result["text"])
+        # Parse the response with robust JSON extraction
+        model_data = extract_json_from_text(result.content)
 
         # Enhance with research if needed
         if needs_additional_research(model_data):

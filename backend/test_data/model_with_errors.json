@@ -1,0 +1,24 @@
+{
+  "Assumptions": {
+    "data": [
+      [["WACC", "10%"]],
+      [["Growth Rate", "15%"]]
+    ],
+    "formulas": [
+      [null, null],
+      [null, null]
+    ]
+  },
+  "Financials": {
+    "data": [
+      [["Revenue", 100]],
+      [["EBITDA", "#DIV/0!"]],
+      [["Bad Reference", "#REF!"]]
+    ],
+    "formulas": [
+      [null, null],
+      [null, "=B1/0"],
+      [null, "=DeletedSheet!A1"]
+    ]
+  }
+}

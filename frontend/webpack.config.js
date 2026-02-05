@@ -1,9 +1,19 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
+const webpack = require('webpack');
+const fs = require('fs');
+const os = require('os');
 
 module.exports = (env, argv) => {
   const isDev = argv.mode === 'development';
+
+  // Use Office dev certs
+  const certPath = path.join(os.homedir(), '.office-addin-dev-certs');
+  const httpsOptions = fs.existsSync(certPath) ? {
+    key: fs.readFileSync(path.join(certPath, 'localhost.key')),
+    cert: fs.readFileSync(path.join(certPath, 'localhost.crt'))
+  } : true;
 
   return {
     entry: {
@@ -36,6 +46,9 @@ module.exports = (env, argv) => {
       ]
     },
     plugins: [
+      new webpack.DefinePlugin({
+        'process.env.REACT_APP_API_URL': JSON.stringify(process.env.REACT_APP_API_URL || 'https://localhost:3001')
+      }),
       new HtmlWebpackPlugin({
         template: './taskpane/taskpane.html',
         filename: 'taskpane.html',
@@ -58,9 +71,24 @@ module.exports = (env, argv) => {
       },
       port: 3000,
       hot: true,
-      https: true,
+      server: {
+        type: 'https',
+        options: httpsOptions
+      },
       headers: {
         'Access-Control-Allow-Origin': '*'
+      },
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3001',
+          secure: false,
+          changeOrigin: true
+        },
+        '/health': {
+          target: 'http://localhost:3001',
+          secure: false,
+          changeOrigin: true
+        }
       }
     },
     devtool: isDev ? 'source-map' : false

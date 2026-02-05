@@ -6,9 +6,9 @@
   "scripts": {
     "build": "webpack --mode production",
     "dev": "webpack serve --mode development",
-    "start": "office-addin-debugging start manifest.xml desktop",
-    "stop": "office-addin-debugging stop manifest.xml",
-    "validate": "office-addin-manifest validate manifest.xml"
+    "start": "webpack serve --mode development & office-addin-debugging start ../manifest.xml desktop",
+    "stop": "office-addin-debugging stop ../manifest.xml",
+    "validate": "office-addin-manifest validate ../manifest.xml"
   },
   "dependencies": {
     "react": "^18.2.0",

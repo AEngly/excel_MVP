@@ -1,4 +1,4 @@
-# Backend Dockerfile
+# Backend Dockerfile for Production
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -19,5 +19,9 @@ COPY . .
 # Expose port
 EXPOSE 3001
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD python -c "import requests; requests.get('http://localhost:3001/health')"
+
 # Run the application
-CMD ["uv", "run", "python", "main.py"]
+CMD ["python", "main.py"]

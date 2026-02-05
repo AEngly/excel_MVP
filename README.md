@@ -119,6 +119,16 @@ The `npm start` command automatically sideloads the add-in. If needed manually:
 
 ## Deployment
 
+**For External Users / MVP Testing:**
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
+
+**Quick summary:**
+1. Deploy frontend to Netlify/Vercel (free)
+2. Deploy backend to Railway/Render (free tier)
+3. Update `manifest.production.xml` with your deployed URLs
+4. Share manifest file with users - they sideload it in Excel
+
 **Frontend**: Build and host static files
 ```bash
 npm run build

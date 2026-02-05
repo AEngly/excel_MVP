@@ -1,21 +1,30 @@
 import * as React from 'react';
 import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
+import { API_BASE_URL } from '../config';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
 }
 
-export const ModelChat: React.FC = () => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'assistant',
-      content: 'Hi! I can help you understand your DCF model. Ask me about assumptions, results, or sensitivity analysis.'
-    }
-  ]);
+interface PdfSession {
+  sessionId: string;
+  filename: string;
+  chunks: number;
+  uploadedAt: string;
+  summary: string;
+}
+
+interface ModelChatProps {
+  sessions: PdfSession[];
+}
+
+export const ModelChat: React.FC<ModelChatProps> = ({ sessions }) => {
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [agentMode, setAgentMode] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -27,34 +36,87 @@ export const ModelChat: React.FC = () => {
 
     const userMessage: Message = { role: 'user', content: input };
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = input;
     setInput('');
     setLoading(true);
 
     try {
-      // Extract current model data
+      // Always extract Excel model for context
+      console.log(agentMode ? '🤖 Agent Mode: Read + Write' : '📖 Read-Only Mode: Read only');
       const modelData = await extractModelSnapshot();
+      console.log('✅ Model snapshot extracted:', Object.keys(modelData).length, 'sheets');
 
-      // Send to backend
-      const response = await axios.post('http://localhost:3001/api/chat', {
-        message: input,
-        modelData,
-        history: messages
-      });
+      const payload: any = {
+        message: currentInput,
+        history: messages,
+        sessionIds: sessions.map(s => s.sessionId),  // Include all sessionIds for PDF context
+        modelData: modelData,  // Always send Excel model data
+        agentMode: agentMode  // Tell backend if we can write or just read
+      };
+
+      const response = await axios.post(`${API_BASE_URL}/api/chat`, payload);
+
+      console.log('📩 Received response:', response.data);
+      console.log('📝 Response text:', response.data.response);
+      console.log('⚡ Actions:', response.data.actions);
+      console.log('🔍 Type of response.data:', typeof response.data);
+      console.log('🔍 Type of response.data.response:', typeof response.data.response);
+
+      // Handle if response.data is a string instead of object
+      let parsedData = response.data;
+      if (typeof response.data === 'string') {
+        console.log('⚠️  Response is a string, parsing...');
+        try {
+          parsedData = JSON.parse(response.data);
+        } catch (e) {
+          console.error('Failed to parse response string:', e);
+          parsedData = { response: response.data, actions: [] };
+        }
+      }
 
       const assistantMessage: Message = {
         role: 'assistant',
-        content: response.data.response
+        content: parsedData.response || JSON.stringify(parsedData)
       };
 
       setMessages(prev => [...prev, assistantMessage]);
-    } catch (error) {
+
+      // Execute any actions returned by AI (only in Agent Mode)
+      if (parsedData.actions && parsedData.actions.length > 0) {
+        if (agentMode) {
+          console.log('🤖 Agent Mode: Executing', parsedData.actions.length, 'actions');
+
+          // Log each action for debugging
+          parsedData.actions.forEach((action: any, idx: number) => {
+            console.log(`Action ${idx + 1}:`, action.type);
+            if (action.range && action.values) {
+              console.log(`  Range: ${action.range}`);
+              console.log(`  Values dimensions: ${action.values.length} rows x ${action.values[0]?.length || 0} cols`);
+              console.log(`  Values:`, action.values);
+            }
+          });
+
+          await executeActions(parsedData.actions);
+        } else {
+          console.log('📖 Read-Only Mode: Ignoring', parsedData.actions.length, 'actions (switch to Agent Mode to execute)');
+        }
+      }
+    } catch (error: any) {
       console.error('Chat error:', error);
+      const errorMsg = error.response?.data?.detail || error.message || 'Unknown error';
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.'
+        content: `❌ Error: ${errorMsg}`
       }]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
     }
   };
 
@@ -68,12 +130,51 @@ export const ModelChat: React.FC = () => {
 
       for (const sheet of sheets.items) {
         const usedRange = sheet.getUsedRange();
-        usedRange.load(['values', 'formulas']);
+        usedRange.load(['values', 'formulas', 'numberFormat', 'address', 'rowCount', 'columnCount', 'rowIndex', 'columnIndex']);
         await context.sync();
 
+        const values = usedRange.values;
+        const formulas = usedRange.formulas;
+        const numberFormat = usedRange.numberFormat;
+        const rowCount = usedRange.rowCount;
+        const colCount = usedRange.columnCount;
+        const startRow = usedRange.rowIndex;  // Absolute row in Excel (0-based)
+        const startCol = usedRange.columnIndex;  // Absolute col in Excel (0-based)
+
+        // Build sparse representation - only non-empty cells
+        const cells: any[] = [];
+
+        for (let row = 0; row < rowCount; row++) {
+          for (let col = 0; col < colCount; col++) {
+            const value = values[row][col];
+            const formula = formulas[row][col];
+
+            // Skip completely empty cells
+            if ((value === "" || value === null) && (formula === "" || formula === null)) {
+              continue;
+            }
+
+            // Load formatting for this specific cell
+            const cell = usedRange.getCell(row, col);
+            cell.format.load(['font/bold', 'font/color', 'fill/color']);
+            await context.sync();
+
+            cells.push({
+              row: startRow + row,  // Absolute row number in Excel
+              col: startCol + col,  // Absolute column number in Excel
+              value: value,
+              formula: formula || null,
+              numberFormat: numberFormat[row][col],
+              bold: cell.format.font.bold,
+              fontColor: cell.format.font.color,
+              fillColor: cell.format.fill.color
+            });
+          }
+        }
+
         snapshot[sheet.name] = {
-          values: usedRange.values,
-          formulas: usedRange.formulas
+          cells: cells,  // Sparse format
+          address: usedRange.address
         };
       }
 
@@ -81,18 +182,97 @@ export const ModelChat: React.FC = () => {
     });
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+  const executeActions = async (actions: any[]) => {
+    // Helper function to convert column letter to number (A=1, B=2, etc.)
+    const colToNum = (col: string): number => {
+      let num = 0;
+      for (let i = 0; i < col.length; i++) {
+        num = num * 26 + (col.charCodeAt(i) - 64);
+      }
+      return num;
+    };
+
+    await Excel.run(async (context) => {
+      for (const action of actions) {
+        try {
+          const sheet = context.workbook.worksheets.getItem(action.sheet);
+
+          if (action.type === 'setCellValue') {
+            const cell = sheet.getRange(action.cell);
+            cell.values = [[action.value]];
+          }
+          else if (action.type === 'setFormula') {
+            const cell = sheet.getRange(action.cell);
+            cell.formulas = [[action.formula]];
+          }
+          else if (action.type === 'setRangeValues') {
+            // Parse range to get dimensions
+            const rangeParts = action.range.split(':');
+            if (rangeParts.length === 2) {
+              const [startCell, endCell] = rangeParts;
+              const startCol = startCell.match(/[A-Z]+/)[0];
+              const startRow = parseInt(startCell.match(/\d+/)[0]);
+              const endCol = endCell.match(/[A-Z]+/)[0];
+              const endRow = parseInt(endCell.match(/\d+/)[0]);
+
+              // Calculate expected dimensions
+              const expectedRows = endRow - startRow + 1;
+              const expectedCols = colToNum(endCol) - colToNum(startCol) + 1;
+              const actualRows = action.values.length;
+              const actualCols = action.values[0]?.length || 0;
+
+              console.log(`📐 Range ${action.range}: expecting ${expectedRows}x${expectedCols}, got ${actualRows}x${actualCols}`);
+
+              if (expectedRows !== actualRows || expectedCols !== actualCols) {
+                throw new Error(`Dimension mismatch: range ${action.range} expects ${expectedRows}x${expectedCols}, but values are ${actualRows}x${actualCols}`);
+              }
+            }
+
+            const range = sheet.getRange(action.range);
+            range.values = action.values;
+          }
+          else if (action.type === 'setRangeFormulas') {
+            const range = sheet.getRange(action.range);
+            range.formulas = action.formulas;
+          }
+          else if (action.type === 'formatCell') {
+            const cell = sheet.getRange(action.cell);
+            if (action.format.bold) cell.format.font.bold = true;
+            if (action.format.numberFormat) cell.numberFormat = action.format.numberFormat;
+            if (action.format.bgColor) cell.format.fill.color = action.format.bgColor;
+            if (action.format.fontColor) cell.format.font.color = action.format.fontColor;
+          }
+        } catch (err) {
+          console.error('Action failed:', action, err);
+          throw err; // Re-throw to show user
+        }
+      }
+      await context.sync();
+      console.log('✅ All actions executed successfully!');
+    });
   };
 
   return (
     <div className="chat-container">
-      <h2>Model Chat</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+        <h2 style={{ margin: 0 }}>Model Chat</h2>
+        <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={agentMode}
+            onChange={(e) => setAgentMode(e.target.checked)}
+            style={{ marginRight: '8px' }}
+          />
+          <span style={{ fontSize: '14px', fontWeight: 500 }}>
+            {agentMode ? '🤖 Agent Mode (Read + Write)' : '📖 Read-Only Mode'}
+          </span>
+        </label>
+      </div>
       <p style={{ marginBottom: '15px', color: '#666', fontSize: '14px' }}>
-        Ask questions about your DCF model, assumptions, or run sensitivity analyses.
+        {agentMode
+          ? '🤖 AI can read your Excel model and make changes'
+          : '📖 AI can read your Excel model but won\'t make changes (read-only)'}
+        {sessions.length > 0 && ` 📚 ${sessions.length} PDF${sessions.length > 1 ? 's' : ''} available for reference.`}
       </p>
 
       <div className="chat-messages">

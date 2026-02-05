@@ -1,0 +1,37 @@
+COMPANY OVERVIEW
+Tech Solutions Inc.
+
+FINANCIAL HIGHLIGHTS (USD Millions)
+
+Fiscal Year 2023:
+- Revenue: $150M
+- EBITDA: $45M (30% margin)
+- CAPEX: $10M
+- Net Working Capital Change: $5M
+
+Fiscal Year 2024 (Projected):
+- Revenue: $180M (20% growth)
+- EBITDA: $54M (30% margin)
+- CAPEX: $12M
+
+MARKET INFORMATION:
+- Industry: SaaS/Cloud Computing
+- Geographic Focus: North America, Europe
+- Customer Base: Enterprise B2B
+- Market Position: #3 in sector
+
+ASSUMPTIONS:
+- Revenue Growth Rate: 20% (2024-2026), 15% (2027-2028)
+- EBITDA Margin: Stable at 30%
+- Tax Rate: 25%
+- Risk-Free Rate: 4%
+- Market Risk Premium: 6%
+- Beta: 1.2
+- Cost of Debt: 5%
+- Debt/Equity Ratio: 30/70
+- Terminal Growth Rate: 3%
+
+COMPARABLE COMPANIES:
+- Competitor A: 25x P/E, 15x EV/EBITDA
+- Competitor B: 22x P/E, 12x EV/EBITDA
+- Average: 23.5x P/E, 13.5x EV/EBITDA

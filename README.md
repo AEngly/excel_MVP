@@ -4,98 +4,179 @@ AI-powered Excel add-in for automating DCF (Discounted Cash Flow) model creation
 
 ## Features
 
-1. **📄 PDF Upload & Model Generation** - Upload company PDFs (financial statements, presentations) and automatically generate complete DCF models
-2. **✓ Cross-Tab Error Checking** - Validate formulas and values across multiple worksheets
-3. **💬 Model Chat Interface** - Ask questions, run sensitivity analysis, and understand model behavior
+1. **📄 PDF Upload & Model Generation** - Upload company PDFs (financial statements, presentations) and automatically generate complete DCF models with AI-powered data extraction and reasonable assumptions
+2. **✓ Cross-Tab Error Checking** - Validate formulas and values across multiple worksheets in DCF models
+3. **💬 Model Chat Interface** - Conversational analysis with agent mode (read-only chat or write-enabled actions), sensitivity analysis, and model behavior explanations
+4. **📚 Session Management** - Track uploaded PDFs with embeddings for contextual retrieval across chat sessions
 
 ## Tech Stack
 
-- **Frontend**: React + Office.js (Excel Task Pane Add-in)
-- **Backend**: Python FastAPI + LangChain + OpenAI (managed with `uv`)
-- **AI**: GPT-4 for model generation and analysis
+- **Frontend**: React 18 + TypeScript + Office.js API
+- **Backend**: Python 3.9+ with FastAPI + LangChain + OpenAI
+- **Package Management**: `uv` (Python) and `npm` (Node.js)
+- **Deployment**: Docker + Docker Compose with nginx
+- **AI**: GPT-4 for intelligent model generation, error checking, and conversational analysis
 
 ## Project Structure
 
 ```
 excel_MVP/
-├── frontend/           # React task pane UI
-│   ├── taskpane/      # Main task pane components
-│   └── commands/      # Office commands
-├── backend/           # Python FastAPI backend
-│   ├── main.py        # FastAPI app
-│   └── services/      # Business logic (PDF, model gen, chat)
-├── manifest.xml       # Excel add-in manifest
-└── webpack.config.js  # Frontend build config
+├── frontend/                    # React task pane add-in
+│   ├── taskpane/
+│   │   ├── components/
+│   │   │   ├── App.tsx         # Main app with tab navigation
+│   │   │   ├── PdfUpload.tsx   # PDF upload + model generation
+│   │   │   ├── ErrorChecker.tsx # Error validation UI
+│   │   │   └── ModelChat.tsx   # Chat interface with agent mode
+│   │   ├── config.ts           # API_BASE_URL configuration
+│   │   └── index.tsx           # React entry point
+│   ├── commands/               # Office ribbon commands
+│   ├── package.json
+│   ├── webpack.config.js       # Dev server + build config
+│   └── Dockerfile
+├── backend/                     # Python FastAPI backend
+│   ├── main.py                 # FastAPI app with CORS
+│   ├── pyproject.toml          # Dependencies (managed by uv)
+│   ├── services/
+│   │   ├── pdf_service.py      # PDF text extraction (PyPDF2)
+│   │   ├── model_service.py    # DCF generation with LangChain
+│   │   ├── error_check_service.py # Formula validation
+│   │   ├── chat_service.py     # Conversational AI
+│   │   ├── embedding_service.py # Vector embeddings for PDFs
+│   │   ├── session_service.py  # Session tracking
+│   │   ├── summary_service.py  # PDF summarization
+│   │   └── action_validator.py # Validate Excel actions
+│   └── Dockerfile
+├── nginx/
+│   └── nginx.conf              # Reverse proxy config
+├── manifest.xml                # Development manifest (localhost:3000)
+├── manifest.production.xml     # Production manifest template
+├── manifest.docker.xml         # Docker deployment manifest
+├── docker-compose.yml          # Development with Docker
+├── docker-compose.production.yml # Production Docker setup
+├── DEPLOYMENT.md               # Deployment guide (cloud/free hosting)
+└── DEPLOYMENT_DOCKER.md        # Docker deployment guide
 ```
 
-## Setup Instructions
+## Quick Start Guide
 
 ### Prerequisites
 
-- Node.js 16+ and npm
-- Python 3.9+
-- [uv](https://github.com/astral-sh/uv) - Fast Python package manager (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- Excel (Desktop or Online)
-- OpenAI API key
+- **Node.js** 16+ and npm
+- **Python** 3.9 or higher
+- **uv** - Fast Python package manager ([Install guide](https://github.com/astral-sh/uv))
+  ```bash
+  # macOS/Linux
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  
+  # Windows PowerShell
+  powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+  ```
+- **Excel** (Desktop for Windows/Mac or Excel Online)
+- **OpenAI API Key** - Get from [OpenAI Platform](https://platform.openai.com/api-keys)
 
-### 1. Install Frontend Dependencies
+### Option 1: Local Development (Recommended for Development)
 
+**Step 1: Clone and Setup**
 ```bash
-cd frontend
-npm install
+git clone <your-repo-url>
+cd excel_MVP
 ```
 
-### 2. Setup Backend
-
+**Step 2: Backend Setup**
 ```bash
 cd backend
 
-# Install dependencies with uv (creates .venv and uv.lock automatically)
+# Install dependencies with uv (auto-creates .venv and uv.lock)
 uv sync
 
-# Create .env file
-cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY
+# Create environment file
+echo "OPENAI_API_KEY=your-openai-api-key-here" > .env
+
+# Verify installation
+uv run python -c "import fastapi; print('✅ Backend ready')"
 ```
 
-> **Note**: `uv sync` creates a lockfile (`uv.lock`) for reproducible builds. Commit this file to version control.
-
-### 3. Run Development Servers
-
-**Terminal 1 - Frontend (Excel Add-in):**
+**Step 3: Frontend Setup**
 ```bash
-cd frontend
-npm start
-# This starts webpack dev server and sideloads the add-in into Excel
+cd ../frontend
+
+# Install dependencies
+npm install
+
+# Verify installation
+npm run validate  # Validates manifest.xml
 ```
 
-**Terminal 2 - Backend API:**
+**Step 4: Start Development Servers**
+
+Open **two terminals**:
+
+**Terminal 1 - Backend:**
 ```bash
 cd backend
 uv run python main.py
-# Or if already in uv environment:
-python main.py
-# Server runs on http://localhost:3001
+# Server starts on http://localhost:3001
+# You should see: "Uvicorn running on http://0.0.0.0:3001"
 ```
 
-### 4. Docker Option (Alternative)
-
+**Terminal 2 - Frontend:**
 ```bash
-# Build and run with Docker Compose
-docker-compose up
-
-# Frontend: http://localhost:3000
-# Backend: http://localhost:3001
+cd frontend
+npm start
+# Webpack dev server starts on https://localhost:3000
+# Excel add-in automatically sideloads into Excel Desktop
 ```
 
-### 4. Load Add-in in Excel
+**What happens:**
+- Frontend dev server starts with hot reload
+- Self-signed SSL certificate generated (required by Office.js)
+- Excel opens automatically with the add-in loaded
+- Task pane appears on the right side of Excel
 
-The `npm start` command automatically sideloads the add-in. If needed manually:
+**Step 5: Using the Add-in**
+
+The add-in should appear automatically in Excel. If not:
 
 1. Open Excel
-2. Go to Insert > My Add-ins > Manage My Add-ins
-3. Upload `manifest.xml`
-4. Click "Show Taskpane" from the ribbon
+2. Go to **Home** tab → **Add-ins** section
+3. Click **Show Taskpane** (or your ribbon button)
+4. The DCF Assistant pane opens on the right
+
+### Option 2: Docker (Recommended for Testing/Production-like Environment)
+
+**Step 1: Install Docker**
+- Download from [docker.com](https://www.docker.com/get-started)
+
+**Step 2: Create Environment File**
+```bash
+cd excel_MVP
+echo "OPENAI_API_KEY=your-openai-api-key-here" > .env
+```
+
+**Step 3: Start with Docker Compose**
+```bash
+# Development mode (with hot reload)
+docker-compose up
+
+# Production mode (optimized builds)
+docker-compose -f docker-compose.production.yml up -d
+```
+
+**Services:**
+- Frontend: http://localhost:3000
+- Backend: http://localhost:3001
+
+**Step 4: Sideload Manifest**
+
+Since Excel runs outside Docker, manually sideload:
+
+1. Open Excel
+2. **Insert** → **Get Add-ins** → **My Add-ins** → **Manage My Add-ins**
+3. Click **Upload My Add-in**
+4. Select `/excel_MVP/manifest.xml` (for development) or `manifest.docker.xml` (for Docker)
+5. Click **Upload**
+6. Click the ribbon button to show the task pane
 
 ## Usage
 

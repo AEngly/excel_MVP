@@ -93,9 +93,14 @@ async def chat_with_model(
 
     # If no model_data, just do standard chat (read-only)
     if not model_data or len(model_data) == 0:
-        prompt = f"""You are a helpful AI assistant for financial analysis and DCF modeling.
+        prompt = f"""🌍 CRITICAL LANGUAGE INSTRUCTION:
+Detect the language of the user's current message and respond in EXACTLY that language.
+- If user writes in English → respond in English
+- If user writes in Danish → respond in Danish
+- If user writes in Norwegian → respond in Norwegian
+IGNORE previous conversation language - match ONLY the current message language.
 
-IMPORTANT: Always respond in the SAME LANGUAGE as the user's message. If the user writes in Danish, respond in Danish. If in English, respond in English.
+You are a helpful AI assistant for financial analysis and DCF modeling.
 {pdf_context_text}
 
 Previous Conversation:
@@ -107,57 +112,50 @@ If PDF context is provided above, use it to give specific answers with numbers a
 
 Return ONLY a JSON object with this format:
 {{
-  "response": "Your helpful response in the SAME LANGUAGE as the user",
+  "response": "Your helpful response in the EXACT SAME LANGUAGE as the user's current message",
   "actions": []
 }}
 
 Be helpful and informative regardless of whether PDF context is available."""
     else:
-        # Model data available - user can read Excel sheet and ask questions
-        prompt = f"""You are an Excel AI assistant that can read and analyze Excel sheets.
+        # Model data available
+        if agent_mode:
+            # AGENT MODE: Can read AND write
+            prompt = f"""🌍 CRITICAL LANGUAGE INSTRUCTION:
+Detect the language of the user's current message and respond in EXACTLY that language.
+- If user writes in English → respond in English
+- If user writes in Danish → respond in Danish
+- If user writes in Norwegian → respond in Norwegian
+IGNORE previous conversation language - match ONLY the current message language.
 
-CRITICAL: You have FULL ACCESS to the Excel model shown below. Use it to answer questions PRECISELY.
+You are an Excel AI assistant in AGENT MODE - you can READ and WRITE to Excel.
 
-IMPORTANT: Always respond in the SAME LANGUAGE as the user's message. If the user writes in Danish, respond in Danish.
-{pdf_context_text}
+CURRENT EXCEL MODEL:
 {model_context}
+
+{pdf_context_text}
 
 Previous Conversation:
 {conversation_history}
 
 User: {message}
+
+🤖 AGENT MODE ACTIVE: You CAN perform actions in Excel.
 
 INSTRUCTIONS:
-- When asked about specific cells (e.g., "What is in cell L4?"), look at the Excel Model context above and find that exact cell
-- The Excel Model section shows EVERY non-empty cell with its reference (e.g., "L4: 313.281566")
-- If a cell is listed in the Excel Model, it HAS content - answer based on what you see
-- If a cell is NOT listed, it is empty
-- For questions about formulas, values, or formatting, refer DIRECTLY to the Excel Model context above
+- When user asks to CREATE/WRITE/ADD content: Generate actions to do it
+- When user asks to CLEAR/DELETE/REMOVE: Use clearRange action
+- When user asks about existing content: Read from Excel Model context above
+- If sheet is empty, that's fine - you can still create content with actions
 
-Return ONLY a JSON object with this format:
+Return ONLY valid JSON with this structure:
 {{
-  "response": "Your answer based on the Excel Model shown above (in same language as user)",
-  "actions": []
-}}
-
-IMPORTANT: Always respond in the SAME LANGUAGE as the user's message. If the user writes in Danish, respond in Danish.
-{pdf_context_text}
-{model_context}
-
-Previous Conversation:
-{conversation_history}
-
-User: {message}
-
-You can perform actions in Excel. Return ONLY valid JSON with this structure:
-{{
-  "response": "Your explanation to the user",
+  "response": "Brief explanation in EXACT SAME LANGUAGE as user's current message",
   "actions": [
-    {{"type": "setCellValue", "sheet": "SheetName", "cell": "A1", "value": 123}},
-    {{"type": "setFormula", "sheet": "SheetName", "cell": "B2", "formula": "=A1*2"}},
-    {{"type": "setRangeValues", "sheet": "SheetName", "range": "A1:C3", "values": [[1, 2, 3], [4, 5, 6], [7, 8, 9]]}},
-    {{"type": "setRangeFormulas", "sheet": "SheetName", "range": "D1:D3", "formulas": [["=A1+B1"], ["=A2+B2"], ["=A3+B3"]]}},
-    {{"type": "formatCell", "sheet": "SheetName", "cell": "A1", "format": {{"bold": true, "numberFormat": "0.0%"}}}}
+    {{"type": "setRangeValues", "sheet": "SheetName", "range": "B2:K2", "values": [[100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]]}},
+    {{"type": "setFormula", "sheet": "SheetName", "cell": "B3", "formula": "=B2/(1+0.05)^1"}},
+    {{"type": "clearRange", "sheet": "SheetName", "range": "A10:A20"}},
+    {{"type": "formatCell", "sheet": "SheetName", "cell": "A1", "format": {{"bold": true, "numberFormat": "#,##0"}}}}
   ]
 }}
 
@@ -166,9 +164,12 @@ Action types:
 - setFormula: Set a single cell formula (must start with =)
 - setRangeValues: Set multiple cells at once with 2D array
 - setRangeFormulas: Set formulas for multiple cells (use for connected models)
+- clearRange: Clear/delete content from a range (use this instead of empty arrays)
 - formatCell: Format a cell (bold, numberFormat, bgColor, fontColor)
 
 CRITICAL: For setRangeValues and setRangeFormulas, the array dimensions MUST match the range exactly!
+
+{'🚨 CRITICAL: When user asks to clear/delete/remove cells, you MUST generate clearRange actions! Do not just say it is done - generate the action!' if agent_mode else ''}
 
 ⚠️ BEFORE CREATING ANY ACTION WITH YEARS:
 1. COUNT THE YEARS: End_Year - Start_Year + 1
@@ -214,9 +215,42 @@ Complex model example - "Create cash flow model with NPV and IRR":
   ]
 }}
 
-Build interconnected models where formulas reference other cells. Use Excel functions: SUM, NPV, IRR, XNPV, PMT, etc.
+Build interconnected models where formulas reference other cells. Use Excel functions: SUM, NPV, IRR, XNPV, PMT, etc."""
+        else:
+            # READ-ONLY MODE: Can only read
+            prompt = f"""🌍 CRITICAL LANGUAGE INSTRUCTION:
+Detect the language of the user's current message and respond in EXACTLY that language.
+- If user writes in English → respond in English
+- If user writes in Danish → respond in Danish
+- If user writes in Norwegian → respond in Norwegian
+IGNORE previous conversation language - match ONLY the current message language.
 
-Only include actions if the user explicitly requests changes. For questions, return empty actions array."""
+You are an Excel AI assistant in READ-ONLY MODE - you can only READ Excel, not write.
+
+CURRENT EXCEL MODEL:
+{model_context}
+
+{pdf_context_text}
+
+Previous Conversation:
+{conversation_history}
+
+User: {message}
+
+📖 READ-ONLY MODE: You CANNOT make changes to Excel.
+
+INSTRUCTIONS:
+- Answer questions about existing content in the Excel Model above
+- If user asks to CREATE/WRITE/CHANGE anything, inform them to enable Agent Mode
+- If a cell is listed in Excel Model, it HAS content - answer based on what you see
+- If a cell is NOT listed, it is empty
+- Always return empty actions array in read-only mode
+
+Return ONLY valid JSON:
+{{
+  "response": "Your answer in EXACT SAME LANGUAGE as user's current message (if user asks for changes, tell them to enable Agent Mode)",
+  "actions": []
+}}"""
 
     try:
         response = await model.ainvoke([{"role": "user", "content": prompt}])

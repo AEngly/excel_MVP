@@ -74,9 +74,20 @@ export const ModelChat: React.FC<ModelChatProps> = ({ sessions }) => {
         }
       }
 
+      // Ensure we always have a string for content
+      let responseText = '';
+      if (typeof parsedData.response === 'string') {
+        responseText = parsedData.response;
+      } else if (parsedData.response) {
+        responseText = JSON.stringify(parsedData.response);
+      } else {
+        // Fallback if no response field
+        responseText = JSON.stringify(parsedData);
+      }
+
       const assistantMessage: Message = {
         role: 'assistant',
-        content: parsedData.response || JSON.stringify(parsedData)
+        content: responseText
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -103,10 +114,42 @@ export const ModelChat: React.FC<ModelChatProps> = ({ sessions }) => {
       }
     } catch (error: any) {
       console.error('Chat error:', error);
-      const errorMsg = error.response?.data?.detail || error.message || 'Unknown error';
+
+      let errorMsg = 'Unknown error occurred';
+
+      // Check for different error types
+      if (error.response) {
+        // Backend returned an error response
+        const status = error.response.status;
+        const detail = error.response.data?.detail || error.response.data?.message;
+
+        if (status === 500 && detail) {
+          // Backend error - likely OpenAI API issue
+          if (detail.includes('API key') || detail.includes('authentication') || detail.includes('Unauthorized')) {
+            errorMsg = '🔑 OpenAI API Key Error: Invalid or missing API key. Check backend .env file.';
+          } else if (detail.includes('rate limit') || detail.includes('quota')) {
+            errorMsg = '⏱️ OpenAI Rate Limit: Too many requests or quota exceeded. Wait and try again.';
+          } else if (detail.includes('timeout') || detail.includes('timed out')) {
+            errorMsg = '⏱️ OpenAI Timeout: Request took too long. Try a simpler question.';
+          } else {
+            errorMsg = `🤖 OpenAI API Error: ${detail}`;
+          }
+        } else if (status === 400) {
+          errorMsg = `❌ Bad Request: ${detail || 'Invalid request format'}`;
+        } else {
+          errorMsg = `❌ Backend Error (${status}): ${detail || 'Unknown error'}`;
+        }
+      } else if (error.request) {
+        // Request made but no response
+        errorMsg = '🔌 Network Error: Cannot reach backend. Is the backend server running on https://localhost:3001?';
+      } else {
+        // Something else happened
+        errorMsg = `❌ Error: ${error.message}`;
+      }
+
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `❌ Error: ${errorMsg}`
+        content: errorMsg
       }]);
     } finally {
       setLoading(false);
@@ -234,6 +277,10 @@ export const ModelChat: React.FC<ModelChatProps> = ({ sessions }) => {
           else if (action.type === 'setRangeFormulas') {
             const range = sheet.getRange(action.range);
             range.formulas = action.formulas;
+          }
+          else if (action.type === 'clearRange') {
+            const range = sheet.getRange(action.range);
+            range.clear('Contents');
           }
           else if (action.type === 'formatCell') {
             const cell = sheet.getRange(action.cell);

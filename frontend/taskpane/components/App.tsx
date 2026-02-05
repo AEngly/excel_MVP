@@ -21,6 +21,7 @@ export const App: React.FC = () => {
   const [modelExists, setModelExists] = useState(false);
   const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [sessions, setSessions] = useState<PdfSession[]>([]);
+  const [errorMsg, setErrorMsg] = useState<string>('');
 
   React.useEffect(() => {
     const checkBackend = async () => {
@@ -33,12 +34,15 @@ export const App: React.FC = () => {
         console.log('Backend response:', response.status);
         if (response.ok) {
           setBackendStatus('online');
+          setErrorMsg('');
         } else {
           setBackendStatus('offline');
+          setErrorMsg(`HTTP ${response.status}`);
         }
       } catch (err: any) {
-        console.error('Backend error:', err.message);
+        console.error('Backend error:', err);
         setBackendStatus('offline');
+        setErrorMsg(err.message || 'Network error');
       }
     };
     checkBackend();
@@ -70,6 +74,9 @@ export const App: React.FC = () => {
           Backend: <span style={{ color: backendStatus === 'online' ? '#28a745' : backendStatus === 'offline' ? '#dc3545' : '#ffc107' }}>
             {backendStatus === 'online' ? '🟢 Online' : backendStatus === 'offline' ? '🔴 Offline' : '🟡 Checking...'}
           </span>
+          <br />
+          <small style={{ fontSize: '10px', color: '#666' }}>API: {API_BASE_URL}</small>
+          {errorMsg && <><br /><small style={{ fontSize: '10px', color: '#dc3545' }}>Error: {errorMsg}</small></>}
         </div>
       </header>
 

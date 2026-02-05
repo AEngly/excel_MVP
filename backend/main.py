@@ -193,6 +193,16 @@ async def chat(request: ChatRequest):
         try:
             response_data = json.loads(cleaned_response)
 
+            # Fix incorrect nesting - if response is an object with actions, restructure
+            if isinstance(response_data.get('response'), dict):
+                print("⚠️  Detected incorrect nesting: response contains object instead of string")
+                nested_data = response_data['response']
+                if 'actions' in nested_data:
+                    # Move actions to top level
+                    response_data['actions'] = nested_data['actions']
+                    response_data['response'] = "Actions generated successfully."
+                    print(f"🔧 Fixed structure: moved {len(nested_data['actions'])} actions to top level")
+
             # Validate actions before sending to frontend
             if response_data.get('actions'):
                 print(f"🔍 Validating {len(response_data['actions'])} actions...")
@@ -212,7 +222,8 @@ async def chat(request: ChatRequest):
 
         except json.JSONDecodeError as e:
             print(f"⚠️  JSON parse error: {e}")
-            print(f"📄 Full response: {response_content}")
+            print(f"📄 Full response (first 500 chars): {response_content[:500]}")
+            print(f"📄 Full response (last 200 chars): {response_content[-200:]}")
             # Fallback if AI doesn't return valid JSON
             response_data = {
                 "response": response_content,
